@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EndField 戰鬥模擬器</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
+</head>
+<body>
+  <div id="app">
+    <!-- Page 1: Character Selection -->
+    <div id="page-selection" class="page active">
+      <header class="app-header">
+        <h1>EndField 戰鬥模擬器</h1>
+        <p class="subtitle">選擇最多 4 名幹員組成小隊</p>
+      </header>
+
+      <div class="selection-layout">
+        <div class="char-grid-section">
+          <div class="filter-bar">
+            <div class="filter-group">
+              <span class="filter-label">★</span>
+              <button class="filter-btn" data-filter="stars" data-value="6">6★</button>
+              <button class="filter-btn" data-filter="stars" data-value="5">5★</button>
+            </div>
+            <div class="filter-group">
+              <span class="filter-label">傷害</span>
+              <button class="filter-btn" data-filter="damageType" data-value="physical">物理</button>
+              <button class="filter-btn" data-filter="damageType" data-value="fire">灼熱</button>
+              <button class="filter-btn" data-filter="damageType" data-value="electric">電磁</button>
+              <button class="filter-btn" data-filter="damageType" data-value="nature">自然</button>
+              <button class="filter-btn" data-filter="damageType" data-value="cold">寒冷</button>
+            </div>
+            <div class="filter-group">
+              <span class="filter-label">職業</span>
+              <button class="filter-btn" data-filter="jobClass" data-value="近衛">近衛</button>
+              <button class="filter-btn" data-filter="jobClass" data-value="先鋒">先鋒</button>
+              <button class="filter-btn" data-filter="jobClass" data-value="突擊">突擊</button>
+              <button class="filter-btn" data-filter="jobClass" data-value="術師">術師</button>
+              <button class="filter-btn" data-filter="jobClass" data-value="重裝">重裝</button>
+              <button class="filter-btn" data-filter="jobClass" data-value="輔助">輔助</button>
+            </div>
+          </div>
+          <div id="char-grid" class="char-grid"></div>
+        </div>
+
+        <div class="selection-sidebar">
+          <div class="party-preview">
+            <h3>當前小隊 <span id="party-count">0</span>/4</h3>
+            <div id="party-slots" class="party-slots">
+              <div class="party-slot empty" data-slot="0"></div>
+              <div class="party-slot empty" data-slot="1"></div>
+              <div class="party-slot empty" data-slot="2"></div>
+              <div class="party-slot empty" data-slot="3"></div>
+            </div>
+            <button id="clear-party-btn" class="clear-party-btn">清除選擇</button>
+          </div>
+
+          <div class="enemy-setup">
+            <h3>敵人數量</h3>
+            <div class="enemy-count-control">
+              <button class="count-btn" id="enemy-minus">−</button>
+              <span id="enemy-count-display" class="count-display">1</span>
+              <button class="count-btn" id="enemy-plus">＋</button>
+            </div>
+          </div>
+
+          <button id="start-battle-btn" class="start-btn" disabled>
+            開始戰鬥
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Page 2: Battle -->
+    <div id="page-battle" class="page">
+      <div class="battle-layout">
+        <!-- Left Panel: Party -->
+        <div class="battle-left" id="battle-left">
+          <div class="tech-power-bar-wrap">
+            <div class="tp-label">
+              <span>技力</span>
+              <span id="tp-value">100/100</span>
+            </div>
+            <div class="tp-bar-bg">
+              <div class="tp-bar-fill" id="tp-bar"></div>
+            </div>
+            <span class="tp-regen">↑ 緩慢恢復中</span>
+          </div>
+          <div id="team-status" class="team-status"></div>
+          <div id="party-panel" class="party-panel"></div>
+          <div class="battle-controls">
+            <button id="back-btn" class="back-btn">← 返回選角</button>
+            <button id="sim-attack-btn" class="sim-attack-btn" title="模擬主控幹員受到攻擊（觸發相關連攜技）">
+              ⚔ 模擬受擊
+            </button>
+          </div>
+        </div>
+
+        <!-- Right Panel: Enemies -->
+        <div class="battle-right">
+          <div id="enemy-panel" class="enemy-panel"></div>
+        </div>
+      </div>
+
+      <!-- Bottom Log -->
+      <div class="log-section">
+        <div class="log-header">
+          <span>戰鬥記錄</span>
+          <div class="log-controls">
+            <button id="log-view-toggle" class="log-control-btn">📋 表格</button>
+            <button id="export-csv-btn" class="log-control-btn">⬇ CSV</button>
+            <button id="clear-log-btn" class="clear-log-btn">清除</button>
+          </div>
+        </div>
+        <div id="battle-log" class="battle-log"></div>
+      </div>
+    </div>
+
+    <!-- Targeting Overlay -->
+    <div id="targeting-overlay" class="targeting-overlay hidden">
+      <div class="targeting-prompt">請點擊目標敵人</div>
+    </div>
+
+    <!-- Character Detail Modal -->
+    <div id="char-modal" class="char-modal hidden">
+      <div class="char-modal-backdrop" id="char-modal-backdrop"></div>
+      <div class="char-modal-content">
+        <button class="char-modal-close" id="char-modal-close">×</button>
+        <div id="char-modal-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/constants.js"></script>
+  <script src="js/enemy.js"></script>
+  <script src="js/characters.js"></script>
+  <script src="js/battle.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
