@@ -100,6 +100,10 @@
 
         <!-- Right Panel: Enemies -->
         <div class="battle-right">
+          <div class="section-toggle-bar" id="enemy-toggle-bar">
+            <span>⚔ 敵人狀態</span>
+            <span class="toggle-chevron">▼</span>
+          </div>
           <div id="enemy-panel" class="enemy-panel"></div>
         </div>
       </div>
@@ -109,6 +113,7 @@
         <div class="log-header">
           <span>戰鬥記錄</span>
           <div class="log-controls">
+            <button id="log-collapse-btn" class="log-control-btn log-collapse-btn-el" title="展開/收合">▼</button>
             <button id="log-view-toggle" class="log-control-btn">📋 表格</button>
             <button id="export-csv-btn" class="log-control-btn">⬇ CSV</button>
             <button id="clear-log-btn" class="clear-log-btn">清除</button>

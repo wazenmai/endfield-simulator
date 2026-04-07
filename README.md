@@ -5,4 +5,8 @@
 - Support export csv file of battle log
 - Simulate the state of enemy and combo skill condition
 
+## Version Log
+- v1.0.0 (2026/04/04): First commit.
+- v1.0.1 (2026/04/07): Support RWD.
+
 If you have any comments, feel free to send an email to iotbwu0101@gmail.com.

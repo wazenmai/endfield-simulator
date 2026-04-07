@@ -170,6 +170,22 @@ class UI {
       this._renderLog();
     });
     document.getElementById('export-csv-btn').addEventListener('click', () => this._exportLogCsv());
+
+    // Collapsible enemy panel
+    document.getElementById('enemy-toggle-bar').addEventListener('click', () => {
+      const br = document.querySelector('.battle-right');
+      br.classList.toggle('collapsed');
+    });
+
+    // Collapsible log
+    document.getElementById('log-collapse-btn').addEventListener('click', () => {
+      document.querySelector('.log-section').classList.toggle('collapsed');
+    });
+
+    // On mobile, collapse log by default
+    if (window.innerWidth <= 600) {
+      document.querySelector('.log-section').classList.add('collapsed');
+    }
   }
 
   // ── COOLDOWN TIMER ─────────────────────────────────────────────────────────
