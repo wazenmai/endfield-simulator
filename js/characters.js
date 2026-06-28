@@ -26,6 +26,12 @@ class Character {
   /** Called by BattleState when main unit lands a heavy hit on `target`. Returns chainEvents[]. */
   onHeavyAttack(_target, _battle) { return []; }
 
+  /** 技力 cost of this character's 戰技. Override for variable-cost skills (e.g. 弭芙). */
+  battleTechCost(_battle) { return TECH_POWER_COST; }
+
+  /** Dynamic 戰技 button label; override for skill-replacement characters. Null = default '戰技'. */
+  currentSkillLabel(_battle) { return null; }
+
   colorClass() { return DAMAGE_TYPE_CSS[this.damageType] || 'physical'; }
 
   _heavyHitEvents(target) {
@@ -48,13 +54,13 @@ class Character {
   _spellAttach(el, n, target)            { return { type: EFFECT_TYPE.SPELL_ATTACH, element: el, layers: n, target }; }
   _spellAttachClear(el, target)          { return { type: EFFECT_TYPE.SPELL_ATTACH_CLEAR, element: el, target }; }
   _spellAttachClearAll(target)           { return { type: EFFECT_TYPE.SPELL_ATTACH_CLEAR_ALL, target }; }
-  _spellAbnorm(abnType, target)          { return { type: EFFECT_TYPE.SPELL_ABNORMALITY, abnormalType: abnType, target }; }
+  _spellAbnorm(abnType, target, { level, duration } = {}) { return { type: EFFECT_TYPE.SPELL_ABNORMALITY, abnormalType: abnType, target, level, duration }; }
   _spellAbnormClear(abnType, target)     { return { type: EFFECT_TYPE.SPELL_ABNORMALITY_CLEAR, abnormalType: abnType, target }; }
   _physAbnorm(abnType, target)           { return { type: EFFECT_TYPE.PHYSICAL_ABNORMALITY, abnormalType: abnType, target }; }
   _armorBreak(delta, target)             { return { type: EFFECT_TYPE.ARMOR_BREAK, delta, target }; }
-  _vulnerable(vulnType, target, val = true) { return { type: EFFECT_TYPE.VULNERABLE, vulnType, value: val, target }; }
-  _debuff(debuffType, target)            { return { type: EFFECT_TYPE.DEBUFF, debuffType, target }; }
-  _specialState(key, value, target, label) { return { type: EFFECT_TYPE.SPECIAL_STATE, key, value, target, label }; }
+  _vulnerable(vulnType, target, val = true, duration) { return { type: EFFECT_TYPE.VULNERABLE, vulnType, value: val, target, duration }; }
+  _debuff(debuffType, target, duration)  { return { type: EFFECT_TYPE.DEBUFF, debuffType, target, duration }; }
+  _specialState(key, value, target, label, duration) { return { type: EFFECT_TYPE.SPECIAL_STATE, key, value, target, label, duration }; }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -281,7 +287,7 @@ class PeiLiKa extends Character {
       effects.push(this._chainEvent(this._heavyHitEvents(t)));
     } else if (skillType === SKILL_TYPE.CHAIN) {
       effects.push(this._logOnly(`${this.name} 連攜技：電磁傷害`));
-      effects.push(this._spellAbnorm(SPELL_ABNORMALITY_TYPE.CONDUCTING, t));
+      effects.push(this._spellAbnorm(SPELL_ABNORMALITY_TYPE.CONDUCTING, t, { duration: TIMED_EFFECT_DURATIONS.CHAIN_CONDUCTING }));
       if (t.armorBreak > 0)
         effects.push(this._logOnly(`${this.name} 命中破防敵人，觸發彈射`));
       effects.push(this._chainEvent([{ type: CHAIN_EVENT_TYPE.CHAIN_SKILL_USED }]));
@@ -364,7 +370,7 @@ class AiErDaiLa extends Character {
     } else if (skillType === SKILL_TYPE.CHAIN) {
       effects.push(this._logOnly(`${this.name} 連攜技：自然傷害（群）`));
       for (const enemy of targets)
-        effects.push(this._spellAbnorm(SPELL_ABNORMALITY_TYPE.CORROSION, enemy));
+        effects.push(this._spellAbnorm(SPELL_ABNORMALITY_TYPE.CORROSION, enemy, { duration: TIMED_EFFECT_DURATIONS.LAMB_CORROSION }));
       effects.push(this._chainEvent([{ type: CHAIN_EVENT_TYPE.CHAIN_SKILL_USED }]));
     } else if (skillType === SKILL_TYPE.ULTIMATE) {
       effects.push(this._logOnly(`${this.name} 大招：多利先生分身散射，自然傷害（群）`));
@@ -410,8 +416,8 @@ class JieErPeiTa extends Character {
     } else if (skillType === SKILL_TYPE.ULTIMATE) {
       effects.push(this._logOnly(`${this.name} 大招：自然傷害 + 自然附著 + 緩速 + 法術脆弱${t.armorBreak > 0 ? `（破防 ${t.armorBreak} 層加成）` : ''}`));
       effects.push(this._spellAttach(SPELL_ELEMENT.NATURE, 1, t));
-      effects.push(this._debuff('slow', t));
-      effects.push(this._vulnerable(VULNERABLE_TYPE.SPELL, t));
+      effects.push(this._debuff('slow', t, TIMED_EFFECT_DURATIONS.JIE_LAUNCH));
+      effects.push(this._vulnerable(VULNERABLE_TYPE.SPELL, t, true, TIMED_EFFECT_DURATIONS.JIE_LAUNCH));
       if (t.physicalAbnormality === PHYSICAL_ABNORMALITY_TYPE.LAUNCHED)
         effects.push(this._logOnly(`${this.name} 大招：擊飛狀態維持延長`));
     }
@@ -443,8 +449,8 @@ class TangTang extends Character {
       effects.push(this._logOnly(`${this.name} 戰技：寒冷傷害，形成 ${formed} 個水龍捲（消耗 ${vortex} 渦流）`));
       effects.push(this._techRestore(formed * 10));
       if (formed >= 2) {
-        effects.push(this._vulnerable(VULNERABLE_TYPE.SPELL, t));
-        effects.push(this._logOnly(`${this.name} 形成≥2水龍捲，施加法術脆弱`));
+        effects.push(this._vulnerable(VULNERABLE_TYPE.SPELL, t, true, TIMED_EFFECT_DURATIONS.TANG_SPELL_VULN));
+        effects.push(this._logOnly(`${this.name} 形成≥2水龍捲，施加法術脆弱 15s`));
       }
     } else if (skillType === SKILL_TYPE.CHAIN) {
       battle.vortexCount = Math.min(2, battle.vortexCount + 1);
@@ -486,7 +492,7 @@ class BieLi extends Character {
       effects.push(this._spellAttachClear(SPELL_ELEMENT.COLD, t));
       effects.push(this._logOnly(`${this.name} 連攜技：寒冷附著 ${consumed} 層消耗，造成 ${consumed} 段寒冷傷害`));
       if (consumed > 0)
-        effects.push(this._vulnerable(VULNERABLE_TYPE.COLD, t, consumed * 4));
+        effects.push(this._vulnerable(VULNERABLE_TYPE.COLD, t, consumed * 4, TIMED_EFFECT_DURATIONS.COLD_VULN));
       effects.push(this._ultCharge('別禮', consumed * 25));
       effects.push(this._chainEvent([{ type: CHAIN_EVENT_TYPE.CHAIN_SKILL_USED }]));
     } else if (skillType === SKILL_TYPE.ULTIMATE) {
@@ -503,11 +509,11 @@ class BieLi extends Character {
   }
 }
 
-// ── 12. 塞西 ─────────────────────────────────────────────────────────────
+// ── 12. 塞希 ─────────────────────────────────────────────────────────────
 class SaiXi extends Character {
   constructor() {
     super({
-      name: '塞西', stars: 5, jobClass: JOB_CLASS.SUPPORT, damageType: DAMAGE_TYPE.COLD,
+      name: '塞希', stars: 5, jobClass: JOB_CLASS.SUPPORT, damageType: DAMAGE_TYPE.COLD,
       skillDesc: '召喚支援晶體環繞主幹員（晶體：重擊後為主幹員回復生命，最多2次；若已滿施加法術增幅）',
       chainDesc: '寒冷傷害 + 寒冷附著',
       ultimateDesc: '全隊獲得寒冷增福 + 自然增福',
@@ -1042,6 +1048,222 @@ class YiFan extends Character {
   }
 }
 
+// ── 26. 莊芳宜 ───────────────────────────────────────────────────────────
+class ZhuangFangYi extends Character {
+  constructor() {
+    super({
+      name: '莊芳宜', stars: 6, jobClass: JOB_CLASS.ASSAULT, damageType: DAMAGE_TYPE.ELECTRIC,
+      skillDesc: '電磁傷害。消耗目標導電⚡，依其異常等級+1生成青霆劍（場上最多3柄；無導電時若<3柄仍生成1柄）。青霆劍依次雷擊，最後一擊6倍傷害並充能終結技',
+      chainDesc: '電磁傷害。消耗目標電磁附著並施加導電⚡（依層數充能）；若已導電，異常等級+1',
+      ultimateDesc: '進入天理合真狀態：戰技強化、範圍擴大、首次戰技免技力與導電並必定生成3柄青霆劍',
+      chainConditionText: '對電磁附著 or 導電⚡的敵人重擊 or 處決',
+      talent1: '施放戰技時對自身施加電磁增幅 5s，每次施放戰技時重置',
+      talent2: '有9%免疫受到的傷害，每存在一柄青霆劍此機率+1%；觸發免疫後回復生命（每99s最多一次）',
+      specialMechanic: '青霆劍：技能時造成額外傷害的資源。天理合真：普攻強化、自身行動更不易被打斷'
+    });
+    this.specialState = { azureSwords: 0, tianliState: false, electricAmp: 0 };
+    this._tianliFirstSkillUsed = false;
+  }
+  battleTechCost(_battle) {
+    // First 戰技 in 天理合真 costs no 技力
+    if (this.specialState.tianliState && !this._tianliFirstSkillUsed) return 0;
+    return TECH_POWER_COST;
+  }
+  currentSkillLabel(_battle) {
+    return this.specialState.tianliState ? `戰技\n天理` : null;
+  }
+  useSkill(skillType, targets, battle) {
+    const effects = [];
+    const t = targets[0];
+    if (skillType === SKILL_TYPE.BATTLE) {
+      const inTianli = this.specialState.tianliState;
+      effects.push(this._logOnly(`${this.name} 戰技：電磁傷害${inTianli ? '（天理合真強化）' : ''}`));
+      // Talent 1: 電磁增幅 5s on self (reset each 戰技)
+      this.specialState.electricAmp = 1;
+      effects.push({ type: EFFECT_TYPE.TIMED_CHAR_STATE, char: this, key: 'electricAmp',
+        label: '電磁增幅 ⚡', duration: TIMED_EFFECT_DURATIONS.ELECTRIC_AMP });
+
+      let generated = 0;
+      if (inTianli) {
+        // 天理: guaranteed 3 swords regardless of 導電
+        generated = 3;
+        this._tianliFirstSkillUsed = true;
+      } else if (t.spellAbnormality.conducting) {
+        const level = t.spellAbnormalityLevel.conducting || 1;
+        generated = level + 1;
+        effects.push(this._spellAbnormClear(SPELL_ABNORMALITY_TYPE.CONDUCTING, t));
+        effects.push(this._logOnly(`${this.name} 消耗導電⚡（異常等級 ${level}），生成 ${generated} 柄青霆劍`));
+      } else if (this.specialState.azureSwords < 3) {
+        generated = 1;
+      }
+      const prev = this.specialState.azureSwords;
+      this.specialState.azureSwords = Math.min(3, prev + generated);
+      if (this.specialState.azureSwords > prev)
+        effects.push(this._logOnly(`${this.name} 青霆劍 ${prev} → ${this.specialState.azureSwords} 柄`));
+
+      const swords = this.specialState.azureSwords;
+      if (swords > 0) {
+        effects.push(this._logOnly(`${this.name} 青霆劍依次雷擊（${swords} 段），最後一擊 6 倍傷害`));
+        effects.push(this._ultCharge('莊芳宜', swords * 15));
+        if (inTianli)
+          effects.push(this._spellAttach(SPELL_ELEMENT.ELECTRIC, 1, t));
+      }
+      effects.push(this._chainEvent(this._heavyHitEvents(t)));
+    } else if (skillType === SKILL_TYPE.CHAIN) {
+      const consumed = t.spellAttachment.electric;
+      effects.push(this._logOnly(`${this.name} 連攜技：電磁傷害`));
+      if (consumed > 0) {
+        effects.push(this._spellAttachClear(SPELL_ELEMENT.ELECTRIC, t));
+        effects.push(this._spellAbnorm(SPELL_ABNORMALITY_TYPE.CONDUCTING, t, { level: consumed }));
+        effects.push(this._ultCharge('莊芳宜', consumed * 15));
+        effects.push(this._logOnly(`${this.name} 消耗 ${consumed} 層電磁附著，施加導電⚡${t.spellAbnormality.conducting ? '（已導電：異常等級+1）' : ''}`));
+      } else {
+        effects.push(this._spellAbnorm(SPELL_ABNORMALITY_TYPE.CONDUCTING, t));
+      }
+      effects.push(this._chainEvent([{ type: CHAIN_EVENT_TYPE.CHAIN_SKILL_USED }]));
+    } else if (skillType === SKILL_TYPE.ULTIMATE) {
+      this.specialState.tianliState = true;
+      this._tianliFirstSkillUsed = false;
+      effects.push(this._logOnly(`${this.name} 大招：進入【天理合真】狀態，戰技強化、首次戰技免技力與導電並必定生成3柄青霆劍`));
+      effects.push({ type: EFFECT_TYPE.TIMED_CHAR_STATE, char: this, key: 'tianliState',
+        label: '天理合真', duration: TIMED_EFFECT_DURATIONS.TIANLI_STATE });
+    }
+    return effects;
+  }
+}
+
+// ── 27. 弭芙 ─────────────────────────────────────────────────────────────
+class MiFu extends Character {
+  constructor() {
+    super({
+      name: '弭芙', stars: 6, jobClass: JOB_CLASS.GUARD, damageType: DAMAGE_TYPE.PHYSICAL,
+      skillDesc: '三段連招（斷雲→追形→開天）：斷雲(100技力,返50)物理傷害+拉近；追形(50)物理傷害最後一拳猛擊，若消耗破防≥3則接開天；開天(50)物理傷害視為猛擊',
+      chainDesc: '物理傷害 + 物理脆弱，戰技替換成追形',
+      ultimateDesc: '對目標擊飛 + 物理傷害，戰技替換成追形',
+      chainConditionText: '有敵人達到破防 ≥ 3',
+      talent1: '若目標處於脆弱 or 失衡，傷害倍率提升至 1.2 倍',
+      talent2: '放連攜技後獲得30%最大生命護盾，難以被打斷，持續10s（每60s最多一次）',
+      specialMechanic: '戰技為三段式連招，依施放結果在一段時間內替換成下一招'
+    });
+    this.specialState = { skillStage: 'duanyun' };
+  }
+  battleTechCost(_battle) {
+    return this.specialState.skillStage === 'duanyun' ? 100 : 50;
+  }
+  currentSkillLabel(_battle) {
+    const names = { duanyun: '戰技\n斷雲', zhuixing: '戰技\n追形', kaitian: '戰技\n開天' };
+    return names[this.specialState.skillStage] || null;
+  }
+  _setStage(stage) {
+    this.specialState.skillStage = stage;
+  }
+  useSkill(skillType, targets, battle) {
+    const effects = [];
+    const t = targets[0];
+    if (skillType === SKILL_TYPE.BATTLE) {
+      const stage = this.specialState.skillStage;
+      if (stage === 'duanyun') {
+        effects.push(this._logOnly(`${this.name} 戰技【斷雲】：物理傷害（範圍），拉近敵人，返還50技力`));
+        effects.push(this._techRestore(50));
+        for (const enemy of targets) effects.push(this._physAbnorm(PHYSICAL_ABNORMALITY_TYPE.CRUSH, enemy));
+        this._setStage('zhuixing');
+        effects.push(this._logOnly(`${this.name} 戰技替換成【追形】`));
+      } else if (stage === 'zhuixing') {
+        const willConsume = t.armorBreak; // 猛擊 consumes all break
+        effects.push(this._logOnly(`${this.name} 戰技【追形】：物理傷害，最後一拳猛擊`));
+        effects.push(this._physAbnorm(PHYSICAL_ABNORMALITY_TYPE.CRUSH, t));
+        if (willConsume >= 3) {
+          this._setStage('kaitian');
+          effects.push(this._logOnly(`${this.name} 猛擊消耗 ${willConsume} 層破防（≥3），戰技替換成【開天】`));
+        } else {
+          this._setStage('duanyun');
+          effects.push(this._logOnly(`${this.name} 戰技重置為【斷雲】`));
+        }
+      } else { // kaitian
+        effects.push(this._logOnly(`${this.name} 戰技【開天】：物理傷害（視為猛擊傷害，非戰技傷害）`));
+        effects.push(this._physAbnorm(PHYSICAL_ABNORMALITY_TYPE.CRUSH, t));
+        this._setStage('duanyun');
+        effects.push(this._logOnly(`${this.name} 連招結束，戰技重置為【斷雲】`));
+      }
+      effects.push(this._chainEvent(this._heavyHitEvents(t)));
+    } else if (skillType === SKILL_TYPE.CHAIN) {
+      effects.push(this._logOnly(`${this.name} 連攜技：物理傷害 + 物理脆弱（天賦：獲得30%生命護盾，難以被打斷）`));
+      effects.push(this._vulnerable(VULNERABLE_TYPE.PHYSICAL, t));
+      this._setStage('zhuixing');
+      effects.push(this._logOnly(`${this.name} 戰技替換成【追形】`));
+      effects.push(this._chainEvent([{ type: CHAIN_EVENT_TYPE.CHAIN_SKILL_USED }]));
+    } else if (skillType === SKILL_TYPE.ULTIMATE) {
+      effects.push(this._logOnly(`${this.name} 大招：擊飛 + 物理傷害`));
+      effects.push(this._physAbnorm(PHYSICAL_ABNORMALITY_TYPE.LAUNCHED, t));
+      this._setStage('zhuixing');
+      effects.push(this._logOnly(`${this.name} 戰技替換成【追形】`));
+    }
+    return effects;
+  }
+}
+
+// ── 28. 卡繆 ─────────────────────────────────────────────────────────────
+class KaMiu extends Character {
+  constructor() {
+    super({
+      name: '卡繆', stars: 6, jobClass: JOB_CLASS.VANGUARD, damageType: DAMAGE_TYPE.FIRE,
+      skillDesc: '召喚銜火血翼飛向敵人盤桓（施加長時間虛弱+灼熱脆弱，灼熱傷害+灼熱附著）。大招後替換成追獵（連攜技性質，免技力，命中回技力與連擊）',
+      chainDesc: '灼熱傷害 + 回復技力。命中銜火血翼盤桓的敵人時，短暫延遲後爆炸造成額外灼熱傷害，全隊獲得連擊',
+      ultimateDesc: '大範圍灼熱傷害 + 灼熱附著 + 回復技力。一段時間內下次戰技替換成追獵',
+      chainConditionText: '有敵人的灼熱附著被消耗或吸收',
+      talent1: '連攜技命中銜火血翼盤桓的敵人時回復生命並獲得連擊15s；施放追獵時目標無需被盤桓即可觸發',
+      talent2: '每當透過技能恢復生命，獲得灼熱傷害+4%（最多5層，40s）；隊友獲得25%；自身滿血時每次+2層',
+      specialMechanic: '銜火血翼：場上最多一群，重新施放戰技時舊的消失。追獵：本身視為連攜技，不消耗技力，命中後回技力'
+    });
+    this.specialState = { huntMode: false };
+  }
+  battleTechCost(_battle) {
+    return this.specialState.huntMode ? 0 : TECH_POWER_COST; // 追獵 不消耗技力
+  }
+  currentSkillLabel(_battle) {
+    return this.specialState.huntMode ? `戰技\n追獵` : null;
+  }
+  useSkill(skillType, targets, battle) {
+    const effects = [];
+    const t = targets[0];
+    if (skillType === SKILL_TYPE.BATTLE) {
+      if (this.specialState.huntMode) {
+        // 追獵: 視為連攜技，免技力，命中回技力與連擊
+        this.specialState.huntMode = false;
+        effects.push(this._logOnly(`${this.name} 戰技【追獵】（視為連攜技）：灼熱傷害，回復技力，全隊獲得連擊`));
+        effects.push(this._techRestore(20));
+        if (t.specialStates.fireWings) {
+          effects.push(this._logOnly(`${this.name} 命中銜火血翼目標，回復生命，連擊延長`));
+        }
+        effects.push(this._chainEvent([{ type: CHAIN_EVENT_TYPE.CHAIN_SKILL_USED }]));
+      } else {
+        effects.push(this._logOnly(`${this.name} 戰技：召喚銜火血翼盤桓目標，灼熱傷害 + 灼熱附著`));
+        effects.push(this._specialState('fireWings', true, t, '銜火血翼 🔥🪽', TIMED_EFFECT_DURATIONS.FIRE_WINGS));
+        effects.push(this._debuff('weak', t, TIMED_EFFECT_DURATIONS.FIRE_WINGS));
+        effects.push(this._vulnerable(VULNERABLE_TYPE.FIRE, t, true, TIMED_EFFECT_DURATIONS.FIRE_WINGS));
+        effects.push(this._spellAttach(SPELL_ELEMENT.FIRE, 1, t));
+      }
+    } else if (skillType === SKILL_TYPE.CHAIN) {
+      effects.push(this._logOnly(`${this.name} 連攜技：灼熱傷害 + 回復技力`));
+      effects.push(this._techRestore(20));
+      if (t.specialStates.fireWings) {
+        effects.push(this._logOnly(`${this.name} 銜火血翼引爆！額外灼熱傷害，全隊獲得連擊，回復生命`));
+        effects.push(this._spellAttach(SPELL_ELEMENT.FIRE, 1, t));
+      }
+      effects.push(this._chainEvent([{ type: CHAIN_EVENT_TYPE.CHAIN_SKILL_USED }]));
+    } else if (skillType === SKILL_TYPE.ULTIMATE) {
+      effects.push(this._logOnly(`${this.name} 大招：大範圍灼熱傷害 + 灼熱附著，回復技力`));
+      for (const enemy of targets) effects.push(this._spellAttach(SPELL_ELEMENT.FIRE, 1, enemy));
+      effects.push(this._techRestore(20));
+      this.specialState.huntMode = true;
+      effects.push(this._logOnly(`${this.name} 一段時間內下次戰技替換成【追獵】`));
+      effects.push({ type: EFFECT_TYPE.TIMED_CHAR_STATE, char: this, key: 'huntMode',
+        label: '追獵待命 🔥', duration: TIMED_EFFECT_DURATIONS.HUNT_MODE });
+    }
+    return effects;
+  }
+}
+
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ROSTER
@@ -1053,5 +1275,5 @@ const ROSTER = [
   new ZhuXue(),     new YuJin(),     new HuGuang(),    new AiWeiWenNa(),
   new DaPan(),      new ALieShi(),   new AnTaEr(),     new AiTeLa(),
   new QiuLi(),      new YingShi(),   new KaQiEr(),     new LaiWanTing(),
-  new YiFan()
+  new YiFan(),      new ZhuangFangYi(), new MiFu(),    new KaMiu()
 ];

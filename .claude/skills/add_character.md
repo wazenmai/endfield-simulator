@@ -95,11 +95,11 @@ this._armorBreak(delta, target)            // positive = add, negative = remove
 this._spellAttach(SPELL_ELEMENT.<X>, layers, target)
 this._spellAttachClear(SPELL_ELEMENT.<X>, target)
 this._spellAttachClearAll(target)
-this._spellAbnorm(SPELL_ABNORMALITY_TYPE.<X>, target)
+this._spellAbnorm(SPELL_ABNORMALITY_TYPE.<X>, target, { level?, duration? })  // level = 異常等級; duration overrides 40s default
 this._spellAbnormClear(SPELL_ABNORMALITY_TYPE.<X>, target)
-this._vulnerable(VULNERABLE_TYPE.<X>, target)   // val defaults to true
-this._debuff('weak'|'slow', target)
-this._specialState('key', true|false, target, 'display label')
+this._vulnerable(VULNERABLE_TYPE.<X>, target, val?, duration?)   // val defaults to true; duration overrides 40s default
+this._debuff('weak'|'slow', target, duration?)
+this._specialState('key', true|false, target, 'display label', duration?)
 this._techRestore(amount)                  // restores shared 技力
 this._ultCharge('charName', amount)        // charges one character's ultimate
 this._chainEvent([{ type: CHAIN_EVENT_TYPE.<X>, enemy: target }])
@@ -162,6 +162,8 @@ Match the condition exactly to `chainConditionText`. Common events:
 | 主幹員血量低 | `MAIN_UNIT_HP_LOW` |
 | 聚焦敵人觸發法術異常 | `FOCUSED_ENEMY_ABNORMALITY` |
 | 法術異常被消耗 | `SPELL_ABNORMALITY_CONSUMED` |
+| 灼熱附著被消耗/吸收 | `FIRE_ATTACHMENT_CONSUMED` |
+| 處決失衡敵人 | `EXECUTE_ATTACK` |
 
 If no existing event matches, add a new `CHAIN_EVENT_TYPE` constant to `constants.js` and emit it from the relevant place in `battle.js` or `enemy.js`.
 

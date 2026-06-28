@@ -347,20 +347,26 @@ class UI {
     `;
     block.appendChild(ultBarWrap);
 
-    // Special state display (with crystal charges button for 塞西)
+    // Special state display (with crystal charges button for 塞希)
     if (char.specialState && Object.keys(char.specialState).length > 0) {
       const stateDiv = document.createElement('div');
       stateDiv.className = 'char-special-state';
       for (const [k, v] of Object.entries(char.specialState)) {
+        const stageNames = { duanyun:'斷雲', zhuixing:'追形', kaitian:'開天' };
         const labels = { ironVow:`鐵誓:${v}`, moltenFire:`熔火:${v}/4`,
                          crystalCharges:`晶體:${v}`, guns:`雷槍:${v}`,
                          shadowCount: v > 0 ? `多利影子:${v}` : null,
-                         nextAttackIsHeavy: v ? '★下次普攻=重擊' : null };
+                         nextAttackIsHeavy: v ? '★下次普攻=重擊' : null,
+                         azureSwords: v > 0 ? `青霆劍:${v}/3` : null,
+                         tianliState: v ? '★天理合真' : null,
+                         electricAmp: v ? '電磁增幅⚡' : null,
+                         skillStage: `招式:${stageNames[v] || v}`,
+                         huntMode: v ? '★追獵待命' : null };
         const label = labels[k];
         if (label) {
           const span = document.createElement('span');
           span.textContent = label;
-          if (k === 'nextAttackIsHeavy' && v) span.style.color = '#fcd34d';
+          if (['nextAttackIsHeavy', 'tianliState', 'huntMode'].includes(k) && v) span.style.color = '#fcd34d';
           stateDiv.appendChild(span);
           if (k === 'crystalCharges' && v > 0) {
             const btn = document.createElement('button');
@@ -413,6 +419,15 @@ class UI {
       heavyBtn.addEventListener('click', () => this._triggerAttack('heavy'));
       attackRow.appendChild(heavyBtn);
 
+      // 處決攻擊 button (enabled when any enemy is imbalanced)
+      const canExec = this.battle.canExecute(this.battle.enemies);
+      const execBtn = document.createElement('button');
+      execBtn.className = `attack-btn execute-atk${canExec ? ' heavy-ready' : ''}`;
+      execBtn.textContent = '處決';
+      execBtn.disabled = !canExec;
+      execBtn.addEventListener('click', () => this._triggerAttack('execute'));
+      attackRow.appendChild(execBtn);
+
       block.appendChild(attackRow);
     }
 
@@ -420,9 +435,11 @@ class UI {
     const skillRow = document.createElement('div');
     skillRow.className = 'skill-row';
 
-    // 戰技 (disabled during ultimate)
-    const battleBtn = this._makeSkillBtn('戰技', 'battle-skill', !canBattle || ultActive,
-      char.skillDesc, () => this._triggerSkillWithTarget(charIdx, SKILL_TYPE.BATTLE, false));
+    // 戰技 (disabled during ultimate); label may be dynamic (skill-replacement chars)
+    const battleLabel = char.currentSkillLabel(this.battle) || '戰技';
+    const battleBtn = this._makeSkillBtn(battleLabel, 'battle-skill', !canBattle || ultActive,
+      char.skillDesc, () => this._triggerSkillWithTarget(charIdx, SKILL_TYPE.BATTLE, this._isBattleAoE(char)));
+    if (battleLabel.includes('\n')) battleBtn.style.whiteSpace = 'pre';
     skillRow.appendChild(battleBtn);
 
     // 連攜技 (with cooldown or window countdown)
@@ -467,11 +484,15 @@ class UI {
     return btn;
   }
 
+  _isBattleAoE(char) {
+    // 弭芙 斷雲 hits target + nearby; only AoE while on the 斷雲 stage
+    return char.name === '弭芙' && char.specialState.skillStage === 'duanyun';
+  }
   _isChainAoE(char) {
     return ['黎風', '艾爾黛拉', '萊萬汀'].includes(char.name);
   }
   _isUltAoE(char) {
-    return ['黎風', '管理員', '艾爾黛拉', '湯湯', '餘燼', '弧光', '萊萬汀'].includes(char.name);
+    return ['黎風', '管理員', '艾爾黛拉', '湯湯', '餘燼', '弧光', '萊萬汀', '卡繆'].includes(char.name);
   }
 
   // ── Attack Targeting ───────────────────────────────────────────────────────
@@ -488,6 +509,7 @@ class UI {
     if (attackType === 'normal')  this.battle.doNormalAttack(targets);
     if (attackType === 'plunge')  this.battle.doPlungeAttack(targets);
     if (attackType === 'heavy')   this.battle.doHeavyAttack(targets);
+    if (attackType === 'execute') this.battle.doExecuteAttack(targets);
   }
 
   // ── Skill Targeting ────────────────────────────────────────────────────────

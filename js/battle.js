@@ -221,6 +221,40 @@ class BattleState {
     if (this._onChange) this._onChange('all');
   }
 
+  // 處決攻擊: normal attack on an imbalanced enemy (倒地/擊飛 or 失衡值 > 0)
+  canExecute(targets) {
+    return targets.some(t => t.imbalanceValue > 0 ||
+      t.physicalAbnormality === PHYSICAL_ABNORMALITY_TYPE.KNOCKDOWN ||
+      t.physicalAbnormality === PHYSICAL_ABNORMALITY_TYPE.LAUNCHED);
+  }
+
+  doExecuteAttack(targets) {
+    const char = this.party[this.mainUnitIdx];
+    const executable = targets.filter(t => t.imbalanceValue > 0 ||
+      t.physicalAbnormality === PHYSICAL_ABNORMALITY_TYPE.KNOCKDOWN ||
+      t.physicalAbnormality === PHYSICAL_ABNORMALITY_TYPE.LAUNCHED);
+    if (executable.length === 0) {
+      this.log.addSystem('處決攻擊需要目標處於失衡狀態（倒地/擊飛/失衡值>0）');
+      if (this._onChange) this._onChange('all');
+      return;
+    }
+    this.log.add(char.name, '處決攻擊', `${char.name} 對失衡敵人發動處決攻擊！`, char.colorClass());
+    const chainEvents = [];
+    for (const target of executable) {
+      chainEvents.push({ type: CHAIN_EVENT_TYPE.EXECUTE_ATTACK, enemy: target });
+      chainEvents.push({ type: CHAIN_EVENT_TYPE.HEAVY_HIT_ANY, enemy: target });
+      if (target.spellAttachment.electric > 0 || target.spellAbnormality.conducting)
+        chainEvents.push({ type: CHAIN_EVENT_TYPE.HEAVY_HIT_ELECTRIC, enemy: target });
+      for (const partyChar of this.party) {
+        if (typeof partyChar.onHeavyAttack === 'function')
+          chainEvents.push(...partyChar.onHeavyAttack(target, this));
+      }
+    }
+    for (const evt of chainEvents) this.fireChainEvent(evt);
+    this._checkStandingConditions();
+    if (this._onChange) this._onChange('all');
+  }
+
   _executeHeavyHitOnTargets(_char, targets) {
     const chainEvents = [];
     for (const target of targets) {
@@ -230,6 +264,10 @@ class BattleState {
         this._cancelStateTimer(target, 'spellAbnormality_frozen');
         chainEvents.push({ type: CHAIN_EVENT_TYPE.HEAVY_HIT_FROZEN, enemy: target });
       }
+      // 重擊 raises 失衡值 (per 動作 mechanics doc)
+      target.imbalanceValue++;
+      this.log.addEffect(`敵人 ${target.id} 受到重擊，失衡值 +1（${target.imbalanceValue}）`);
+      chainEvents.push({ type: CHAIN_EVENT_TYPE.ENEMY_IMBALANCE, enemy: target });
       chainEvents.push({ type: CHAIN_EVENT_TYPE.HEAVY_HIT_ANY, enemy: target });
       if (target.vulnerable.physical || target.physicalAbnormality === PHYSICAL_ABNORMALITY_TYPE.ARMOR_CRUSH)
         chainEvents.push({ type: CHAIN_EVENT_TYPE.HEAVY_HIT_PHYSICAL_VULN, enemy: target });
@@ -264,12 +302,13 @@ class BattleState {
     }
 
     if (skillType === SKILL_TYPE.BATTLE) {
-      if (this.sharedTechPower < TECH_POWER_COST) {
-        this.log.addSystem(`技力不足（${this.sharedTechPower}/${TECH_POWER_COST}）`);
+      const cost = char.battleTechCost(this);
+      if (this.sharedTechPower < cost) {
+        this.log.addSystem(`技力不足（${this.sharedTechPower}/${cost}）`);
         if (this._onChange) this._onChange('all');
         return;
       }
-      this.sharedTechPower -= TECH_POWER_COST;
+      this.sharedTechPower -= cost;
     }
 
     if (skillType === SKILL_TYPE.ULTIMATE) {
@@ -377,7 +416,7 @@ class BattleState {
           if (evt.type === CHAIN_EVENT_TYPE.SPELL_ABNORMALITY_APPLIED) {
             const aType = evt.abnormalType;
             this._registerEnemyStateTimer(t, `spellAbnormality_${aType}`, abnormNames[aType] || aType,
-              TIMED_EFFECT_DURATIONS.DEFAULT_STATE, () => { t.spellAbnormality[aType] = false; });
+              TIMED_EFFECT_DURATIONS.DEFAULT_STATE, () => { t.spellAbnormality[aType] = false; t.spellAbnormalityLevel[aType] = 0; });
           }
         }
         if (t.specialStates.focused)
@@ -386,25 +425,27 @@ class BattleState {
       }
 
       case EFFECT_TYPE.SPELL_ATTACH_CLEAR: {
-        effect.target.clearSpellAttachment(effect.element, this.log);
+        const result = effect.target.clearSpellAttachment(effect.element, this.log);
+        chainEvents.push(...result.chainEvents);
         break;
       }
 
       case EFFECT_TYPE.SPELL_ATTACH_CLEAR_ALL: {
-        effect.target.clearAllSpellAttachments(this.log);
+        const result = effect.target.clearAllSpellAttachments(this.log);
+        chainEvents.push(...result.chainEvents);
         chainEvents.push({ type: CHAIN_EVENT_TYPE.SPELL_ABNORMALITY_CONSUMED, enemy: effect.target });
         break;
       }
 
       case EFFECT_TYPE.SPELL_ABNORMALITY: {
         const t = effect.target;
-        const result = t.applySpellAbnormality(effect.abnormalType, this.log);
+        const result = t.applySpellAbnormality(effect.abnormalType, this.log, effect.level);
         chainEvents.push(...result.chainEvents);
         const saNames = { burning:'燃燒 🔥', conducting:'導電 ⚡', corrosion:'腐蝕 🤢', frozen:'凍結 ❄️' };
         this._registerEnemyStateTimer(t, `spellAbnormality_${effect.abnormalType}`,
           saNames[effect.abnormalType] || effect.abnormalType,
-          TIMED_EFFECT_DURATIONS.DEFAULT_STATE,
-          () => { t.spellAbnormality[effect.abnormalType] = false; });
+          effect.duration || TIMED_EFFECT_DURATIONS.DEFAULT_STATE,
+          () => { t.spellAbnormality[effect.abnormalType] = false; t.spellAbnormalityLevel[effect.abnormalType] = 0; });
         break;
       }
 
@@ -425,7 +466,7 @@ class BattleState {
           const defaultClear = (effect.vulnType === 'cold') ? 0 : false;
           const vulnNames = { physical:'物理脆弱', spell:'法術脆弱', cold:'寒冷脆弱', electric:'電磁脆弱', fire:'灼熱脆弱', nature:'自然脆弱' };
           this._registerEnemyStateTimer(t, timerKey, vulnNames[effect.vulnType] || effect.vulnType,
-            TIMED_EFFECT_DURATIONS.DEFAULT_STATE,
+            effect.duration || TIMED_EFFECT_DURATIONS.DEFAULT_STATE,
             () => { t.vulnerable[effect.vulnType] = defaultClear; });
         }
         break;
@@ -437,7 +478,7 @@ class BattleState {
         const debuffNames = { weak:'虛弱', slow:'緩速' };
         this._registerEnemyStateTimer(t, `debuffs_${effect.debuffType}`,
           debuffNames[effect.debuffType] || effect.debuffType,
-          TIMED_EFFECT_DURATIONS.DEFAULT_STATE,
+          effect.duration || TIMED_EFFECT_DURATIONS.DEFAULT_STATE,
           () => { t.debuffs[effect.debuffType] = false; });
         break;
       }
@@ -449,11 +490,13 @@ class BattleState {
         if (effect.value === true) {
           const specialLabels = {
             crystalAttached: '源石結晶 💎', focused: '聚焦',
-            clawMark: '爪印斫痕', snowfield: '冰雪地帶', bomb: '自製炸彈 💣'
+            clawMark: '爪印斫痕', snowfield: '冰雪地帶', bomb: '自製炸彈 💣',
+            fireWings: '銜火血翼 🔥🪽'
           };
-          const duration = effect.key === 'crystalAttached'
-            ? TIMED_EFFECT_DURATIONS.CRYSTAL_ATTACHED
-            : TIMED_EFFECT_DURATIONS.DEFAULT_STATE;
+          const duration = effect.duration
+            || (effect.key === 'crystalAttached'
+              ? TIMED_EFFECT_DURATIONS.CRYSTAL_ATTACHED
+              : TIMED_EFFECT_DURATIONS.DEFAULT_STATE);
           this._registerEnemyStateTimer(t, timerKey, specialLabels[effect.key] || effect.key,
             duration, () => { t.specialStates[effect.key] = false; });
         } else if (effect.value === false) {
@@ -534,7 +577,7 @@ class BattleState {
           unlock = evtType === CHAIN_EVENT_TYPE.SPELL_ATTACHMENT_APPLIED &&
                    evt.element === 'cold' && t && t.spellAttachment.cold >= 3;
           break;
-        case '塞西':    unlock = evtType === CHAIN_EVENT_TYPE.CRYSTAL_CHARGES_DEPLETED; break;
+        case '塞希':    unlock = evtType === CHAIN_EVENT_TYPE.CRYSTAL_CHARGES_DEPLETED; break;
         case '晝雪':    unlock = evtType === CHAIN_EVENT_TYPE.MAIN_UNIT_ATTACKED; break;
         case '餘燼':    unlock = evtType === CHAIN_EVENT_TYPE.MAIN_UNIT_ATTACKED; break;
         case '弧光':    unlock = evtType === CHAIN_EVENT_TYPE.CONDUCTING_CHANGED; break;
@@ -562,6 +605,19 @@ class BattleState {
         case '伊馮':
           unlock = evtType === CHAIN_EVENT_TYPE.HEAVY_HIT_FROZEN ||
                    evtType === CHAIN_EVENT_TYPE.FROZEN_APPLIED;
+          break;
+        case '莊芳宜':
+          // 對電磁附著 or 導電⚡的敵人重擊 or 處決
+          unlock = (evtType === CHAIN_EVENT_TYPE.HEAVY_HIT_ELECTRIC) ||
+                   (evtType === CHAIN_EVENT_TYPE.EXECUTE_ATTACK && t &&
+                    (t.spellAttachment.electric > 0 || t.spellAbnormality.conducting));
+          break;
+        case '弭芙':
+          // 有敵人達到破防 ≥ 3
+          unlock = evtType === CHAIN_EVENT_TYPE.ARMOR_BREAK_GAINED && t && t.armorBreak >= 3;
+          break;
+        case '卡繆':
+          unlock = evtType === CHAIN_EVENT_TYPE.FIRE_ATTACHMENT_CONSUMED;
           break;
       }
 
@@ -601,6 +657,10 @@ class BattleState {
       if (char.name === '螢石') {
         for (const enemy of this.enemies)
           if (enemy.spellAttachment.cold >= 2 || enemy.spellAttachment.nature >= 2) this.chainAvailable.add('螢石');
+      }
+      if (char.name === '弭芙') {
+        for (const enemy of this.enemies)
+          if (enemy.armorBreak >= 3) this.chainAvailable.add('弭芙');
       }
     }
   }

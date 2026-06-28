@@ -11,6 +11,8 @@ class Enemy {
     this.spellAttachment = { fire: 0, electric: 0, nature: 0, cold: 0 };
     this._stateTimers = {}; // { timerKey: timerId } — managed by BattleState
     this.spellAbnormality = { burning: false, conducting: false, corrosion: false, frozen: false };
+    // 異常等級: layers consumed when the abnormality was triggered (0 = none, max 4)
+    this.spellAbnormalityLevel = { burning: 0, conducting: 0, corrosion: 0, frozen: 0 };
     // Only one physical abnormality active at a time (except 倒地/擊飛 which stack with 破防)
     this.physicalAbnormality = null; // 'crush' | 'armorCrush' | 'knockdown' | 'launched'
     this.vulnerable = { physical: false, spell: false, cold: 0, electric: false, fire: false, nature: false };
@@ -20,7 +22,8 @@ class Enemy {
       crystalAttached: false, // 管理員
       clawMark: false,       // 洛茜
       snowfield: false,      // 晝雪
-      bomb: false            // 螢石
+      bomb: false,           // 螢石
+      fireWings: false       // 卡繆 銜火血翼
     };
     this.imbalanceValue = 0;
   }
@@ -76,8 +79,8 @@ class Enemy {
       const consumed = this.armorBreak;
       this.armorBreak = 0;
       this.physicalAbnormality = null;
-      if (log) log.addEffect(`敵人 ${this.id} 猛擊！破防 ${consumed} 層消耗，造成大量物理傷害`);
-      chainEvents.push({ type: CHAIN_EVENT_TYPE.PHYSICAL_ABNORMALITY_CONSUMED, abnormalType: type, enemy: this });
+      if (log) log.addEffect(`敵人 ${this.id} 猛擊！破防 ${consumed} 層消耗（異常等級 ${consumed}），造成大量物理傷害`);
+      chainEvents.push({ type: CHAIN_EVENT_TYPE.PHYSICAL_ABNORMALITY_CONSUMED, abnormalType: type, consumedLevel: consumed, enemy: this });
 
     } else if (type === PHYSICAL_ABNORMALITY_TYPE.ARMOR_CRUSH) {
       // 碎甲: 破防=0, 物理傷害, 施加物理易傷
@@ -85,8 +88,8 @@ class Enemy {
       this.armorBreak = 0;
       this.physicalAbnormality = PHYSICAL_ABNORMALITY_TYPE.ARMOR_CRUSH;
       this.vulnerable.physical = true;
-      if (log) log.addEffect(`敵人 ${this.id} 碎甲！破防 ${consumed} 層消耗，物理傷害，施加【物理易傷】`);
-      chainEvents.push({ type: CHAIN_EVENT_TYPE.PHYSICAL_ABNORMALITY_CONSUMED, abnormalType: type, enemy: this });
+      if (log) log.addEffect(`敵人 ${this.id} 碎甲！破防 ${consumed} 層消耗（異常等級 ${consumed}），物理傷害，施加【物理易傷】`);
+      chainEvents.push({ type: CHAIN_EVENT_TYPE.PHYSICAL_ABNORMALITY_CONSUMED, abnormalType: type, consumedLevel: consumed, enemy: this });
       chainEvents.push({ type: CHAIN_EVENT_TYPE.HEAVY_HIT_PHYSICAL_VULN, enemy: this });
 
     } else if (type === PHYSICAL_ABNORMALITY_TYPE.KNOCKDOWN) {
@@ -188,7 +191,9 @@ class Enemy {
 
     if (abnormType && !this.spellAbnormality[abnormType]) {
       this.spellAbnormality[abnormType] = true;
-      if (log) log.addEffect(`敵人 ${this.id} 觸發【${this._abnormName(abnormType)}】！`);
+      // 異常等級 = layers of the triggering element present at trigger time (max 4)
+      this.spellAbnormalityLevel[abnormType] = this.spellAttachment[newElement];
+      if (log) log.addEffect(`敵人 ${this.id} 觸發【${this._abnormName(abnormType)}】！（異常等級 ${this.spellAbnormalityLevel[abnormType]}）`);
       return abnormType;
     }
     return null;
@@ -200,7 +205,10 @@ class Enemy {
     if (consumed === 0) return { consumed: 0, chainEvents: [] };
     this.spellAttachment[element] = 0;
     if (log) log.addEffect(`敵人 ${this.id} ${this._elemName(element)}附著（${consumed}層）消耗`);
-    return { consumed, chainEvents: [] };
+    const chainEvents = [];
+    if (element === SPELL_ELEMENT.FIRE)
+      chainEvents.push({ type: CHAIN_EVENT_TYPE.FIRE_ATTACHMENT_CONSUMED, layers: consumed, enemy: this });
+    return { consumed, chainEvents };
   }
 
   clearAllSpellAttachments(log) {
@@ -212,7 +220,10 @@ class Enemy {
       this.spellAttachment[el] = 0;
     }
     if (log && total > 0) log.addEffect(`敵人 ${this.id} 所有法術附著消耗（共 ${total} 層）`);
-    return { consumed, total };
+    const chainEvents = [];
+    if (consumed.fire > 0)
+      chainEvents.push({ type: CHAIN_EVENT_TYPE.FIRE_ATTACHMENT_CONSUMED, layers: consumed.fire, enemy: this });
+    return { consumed, total, chainEvents };
   }
 
   _totalSpellAttachment() {
@@ -220,10 +231,16 @@ class Enemy {
   }
 
   // ── Spell Abnormality ────────────────────────────────────────────
-  applySpellAbnormality(type, log) {
-    if (!this.spellAbnormality[type]) {
+  applySpellAbnormality(type, log, level = 1) {
+    const alreadyActive = this.spellAbnormality[type];
+    if (!alreadyActive) {
       this.spellAbnormality[type] = true;
-      if (log) log.addEffect(`敵人 ${this.id} 進入【${this._abnormName(type)}】狀態`);
+      this.spellAbnormalityLevel[type] = Math.min(MAX_ATTACHMENT_LAYERS, level);
+      if (log) log.addEffect(`敵人 ${this.id} 進入【${this._abnormName(type)}】狀態（異常等級 ${this.spellAbnormalityLevel[type]}）`);
+    } else {
+      // Re-application on an already-active abnormality bumps the level (莊芳宜 連攜技)
+      this.spellAbnormalityLevel[type] = Math.min(MAX_ATTACHMENT_LAYERS, this.spellAbnormalityLevel[type] + 1);
+      if (log) log.addEffect(`敵人 ${this.id} 【${this._abnormName(type)}】異常等級 +1（現 ${this.spellAbnormalityLevel[type]}）`);
     }
     const chainEvents = [{ type: CHAIN_EVENT_TYPE.SPELL_ABNORMALITY_APPLIED, abnormalType: type, enemy: this }];
     if (type === SPELL_ABNORMALITY_TYPE.CONDUCTING) chainEvents.push({ type: CHAIN_EVENT_TYPE.CONDUCTING_CHANGED, enemy: this });
@@ -236,6 +253,7 @@ class Enemy {
   clearSpellAbnormality(type, log) {
     if (this.spellAbnormality[type]) {
       this.spellAbnormality[type] = false;
+      this.spellAbnormalityLevel[type] = 0;
       if (log) log.addEffect(`敵人 ${this.id} ${this._abnormName(type)}狀態解除`);
       if (type === SPELL_ABNORMALITY_TYPE.CONDUCTING) return [{ type: CHAIN_EVENT_TYPE.CONDUCTING_CHANGED, enemy: this }];
     }
@@ -299,11 +317,12 @@ class Enemy {
       if (count > 0) chips.push({ label: elemLabels[el], layer: count, colorClass: el });
     }
 
-    // Spell Abnormalities
-    if (this.spellAbnormality.burning)    chips.push({ label: '燃燒 🔥', colorClass: 'fire',     timerKey: 'spellAbnormality_burning' });
-    if (this.spellAbnormality.conducting) chips.push({ label: '導電 ⚡', colorClass: 'electric', timerKey: 'spellAbnormality_conducting' });
-    if (this.spellAbnormality.corrosion)  chips.push({ label: '腐蝕 🤢', colorClass: 'nature',   timerKey: 'spellAbnormality_corrosion' });
-    if (this.spellAbnormality.frozen)     chips.push({ label: '凍結 ❄️', colorClass: 'cold',     timerKey: 'spellAbnormality_frozen' });
+    // Spell Abnormalities (with 異常等級 when > 1)
+    const lvl = (t) => this.spellAbnormalityLevel[t] > 1 ? ` Lv${this.spellAbnormalityLevel[t]}` : '';
+    if (this.spellAbnormality.burning)    chips.push({ label: `燃燒 🔥${lvl('burning')}`,    colorClass: 'fire',     timerKey: 'spellAbnormality_burning' });
+    if (this.spellAbnormality.conducting) chips.push({ label: `導電 ⚡${lvl('conducting')}`, colorClass: 'electric', timerKey: 'spellAbnormality_conducting' });
+    if (this.spellAbnormality.corrosion)  chips.push({ label: `腐蝕 🤢${lvl('corrosion')}`,  colorClass: 'nature',   timerKey: 'spellAbnormality_corrosion' });
+    if (this.spellAbnormality.frozen)     chips.push({ label: `凍結 ❄️${lvl('frozen')}`,    colorClass: 'cold',     timerKey: 'spellAbnormality_frozen' });
 
     // Physical Abnormality
     const physNames = {
@@ -332,6 +351,7 @@ class Enemy {
     if (this.specialStates.clawMark)        chips.push({ label: '爪印斫痕',               colorClass: 'fire',    timerKey: 'specialStates_clawMark' });
     if (this.specialStates.snowfield)       chips.push({ label: '冰雪地帶',               colorClass: 'cold',    timerKey: 'specialStates_snowfield' });
     if (this.specialStates.bomb)            chips.push({ label: '自製炸彈 💣',            colorClass: 'nature',  timerKey: 'specialStates_bomb' });
+    if (this.specialStates.fireWings)       chips.push({ label: '銜火血翼 🔥🪽',          colorClass: 'fire',    timerKey: 'specialStates_fireWings' });
 
     return chips;
   }

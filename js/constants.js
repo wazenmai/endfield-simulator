@@ -84,7 +84,9 @@ const CHAIN_EVENT_TYPE = Object.freeze({
   MAIN_UNIT_ATTACKED: 'MAIN_UNIT_ATTACKED',
   MAIN_UNIT_HP_LOW: 'MAIN_UNIT_HP_LOW',
   FOCUSED_ENEMY_ABNORMALITY: 'FOCUSED_ENEMY_ABNORMALITY',
-  SPELL_ABNORMALITY_CONSUMED: 'SPELL_ABNORMALITY_CONSUMED'  // 阿列什: 法術異常 consumed
+  SPELL_ABNORMALITY_CONSUMED: 'SPELL_ABNORMALITY_CONSUMED',  // 阿列什: 法術異常 consumed
+  FIRE_ATTACHMENT_CONSUMED: 'FIRE_ATTACHMENT_CONSUMED',     // 卡繆: 灼熱附著 consumed or absorbed
+  EXECUTE_ATTACK: 'EXECUTE_ATTACK'                          // 處決攻擊 on an imbalanced enemy
 });
 
 const VULNERABLE_TYPE = Object.freeze({
@@ -149,6 +151,18 @@ const MAX_ARMOR_BREAK = 4;
 // Durations in milliseconds for timed effects
 const TIMED_EFFECT_DURATIONS = Object.freeze({
   CRYSTAL_ATTACHED: 20000,  // 管理員 源石結晶: 20s
-  CRYSTAL_CHARGES:  40000,  // 塞西 支援晶體: 40s
+  CRYSTAL_CHARGES:  40000,  // 塞希 支援晶體: 40s
   DEFAULT_STATE:    40000,  // vulnerable / debuff / spellAbnormality / specialStates default
+  // Per-effect durations (see docs: each operator's chain-applied effect lasts a different time)
+  CHAIN_CONDUCTING:  5000,  // 佩麗卡 連攜技 導電 ⚡: 5s
+  JIE_LAUNCH:        5000,  // 潔爾佩塔 大招 擊飛 / 法術脆弱: 5s
+  TANG_VORTEX:       3000,  // 湯湯 水龍捲: 3s
+  TANG_SPELL_VULN:  15000,  // 湯湯 戰技 法術脆弱: 15s
+  LAMB_CORROSION:    7000,  // 艾爾黛拉 連攜技 腐蝕 🤢: 7s
+  COLD_VULN:        15000,  // 別禮 寒冷脆弱: 15s
+  ELECTRIC_AMP:      5000,  // 莊芳宜 電磁增幅: 5s
+  TIANLI_STATE:     10000,  // 莊芳宜 天理合真: 10s (matches ultimate active window)
+  HUNT_MODE:        10000,  // 卡繆 追獵 替換戰技: 10s after 大招
+  FIRE_WINGS:       30000,  // 卡繆 銜火血翼 (long 虛弱/灼熱脆弱): 30s
+  SKILL_STAGE:      10000,  // 弭芙 戰技替換視窗 (斷雲→追形→開天): 10s
 });
